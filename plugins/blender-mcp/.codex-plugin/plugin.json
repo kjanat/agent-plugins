@@ -1,0 +1,42 @@
+{
+	"name": "blender-mcp",
+	"version": "1.0.0",
+	"description": "Blender Lab's official Blender MCP server, with a skill for safe scene work.",
+	"author": {
+		"name": "Blender Lab",
+		"url": "https://www.blender.org/lab/"
+	},
+	"homepage": "https://www.blender.org/lab/mcp-server/",
+	"repository": "https://github.com/kjanat/agent-plugins",
+	"license": "GPL-3.0-or-later",
+	"keywords": [
+		"blender",
+		"3d",
+		"mcp",
+		"rendering",
+		"python"
+	],
+	"skills": "./skills/",
+	"mcpServers": "./.mcp.json",
+	"interface": {
+		"displayName": "Blender MCP",
+		"shortDescription": "Control and inspect Blender through the official MCP server.",
+		"longDescription": "Connect to a running Blender instance through Blender Lab's official MCP server. Inspect scenes and data-blocks, search bundled Blender documentation, execute Python in Blender, navigate the interface, and render previews.",
+		"developerName": "Blender Lab",
+		"category": "Productivity",
+		"capabilities": [
+			"Interactive",
+			"Write"
+		],
+		"websiteURL": "https://www.blender.org/lab/mcp-server/",
+		"privacyPolicyURL": "https://www.blender.org/privacy-policy/",
+		"defaultPrompt": [
+			"Inspect my open Blender scene and summarize its objects, materials, and cameras.",
+			"Create a simple scene in Blender and render a thumbnail.",
+			"Find performance outliers in my current Blender file."
+		],
+		"brandColor": "#EA7600",
+		"composerIcon": "./assets/blender.png",
+		"logo": "./assets/blender.png"
+	}
+}

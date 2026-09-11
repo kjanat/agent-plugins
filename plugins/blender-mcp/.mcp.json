@@ -1,0 +1,17 @@
+{
+	"mcpServers": {
+		"blender": {
+			"type": "stdio",
+			"command": "uvx",
+			"args": [
+				"-p",
+				"3.11",
+				"--with",
+				"mcp[cli]<2",
+				"--from",
+				"git+https://projects.blender.org/lab/blender_mcp.git@main#subdirectory=mcp",
+				"blender-mcp"
+			]
+		}
+	}
+}

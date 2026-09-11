@@ -1,0 +1,14 @@
+{
+	"name": "blender-mcp",
+	"version": "1.0.0",
+	"description": "Blender Lab's official Blender MCP server, with a skill for safe scene work.",
+	"author": {
+		"name": "Kaj Kowalski",
+		"email": "info@kajkowalski.nl"
+	},
+	"homepage": "https://www.blender.org/lab/mcp-server/",
+	"repository": "https://github.com/kjanat/agent-plugins",
+	"license": "GPL-3.0-or-later",
+	"keywords": ["blender", "3d", "mcp", "rendering", "python"],
+	"mcpServers": "./.mcp.json"
+}

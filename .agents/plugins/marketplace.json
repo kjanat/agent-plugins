@@ -1,0 +1,23 @@
+{
+  "name": "kjanat",
+  "interface": {
+    "displayName": "Kaj Kowalski"
+  },
+  "plugins": [
+    {
+      "name": "blender-mcp",
+      "source": {
+        "source": "local",
+        "path": "./plugins/blender-mcp"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Creativity",
+      "interface": {
+        "displayName": "Blender MCP"
+      }
+    }
+  ]
+}

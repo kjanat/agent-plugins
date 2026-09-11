@@ -1,0 +1,27 @@
+{
+	"typescript": {
+		"command": "${CLAUDE_PLUGIN_ROOT}/bin/tsc-lsp",
+		"env": {
+			"VOLTA_BYPASS": "1"
+		},
+		"extensionToLanguage": {
+			".ts": "typescript",
+			".mts": "typescript",
+			".cts": "typescript",
+			".tsx": "typescriptreact",
+			".js": "javascript",
+			".mjs": "javascript",
+			".cjs": "javascript",
+			".jsx": "javascriptreact"
+		},
+		"initializationOptions": {
+			"enableTelemetry": false
+		},
+		"settings": {
+			"js/ts": {},
+			"typescript": {},
+			"javascript": {}
+		},
+		"maxRestarts": 3
+	}
+}
