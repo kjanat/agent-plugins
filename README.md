@@ -7,10 +7,11 @@ claude plugin marketplace add kjanat/agent-plugins
 codex plugin marketplace add kjanat/agent-plugins
 ```
 
-| Plugin                              | Claude Code | Codex | Description                                       |
-| ----------------------------------- | ----------- | ----- | ------------------------------------------------- |
-| [typescript](plugins/typescript/)   | yes         | no    | TypeScript 7 native language server (`tsc --lsp`) |
-| [blender-mcp](plugins/blender-mcp/) | yes         | yes   | Blender Lab's official Blender MCP server         |
+| Plugin                                  | Claude Code | Codex | Description                                       |
+| --------------------------------------- | ----------- | ----- | ------------------------------------------------- |
+| [rust-analyzer](plugins/rust-analyzer/) | Windows     | no    | Rust LSP with a process-tree memory budget        |
+| [typescript](plugins/typescript/)       | yes         | no    | TypeScript 7 native language server (`tsc --lsp`) |
+| [blender-mcp](plugins/blender-mcp/)     | yes         | yes   | Blender Lab's official Blender MCP server         |
 
 ## Layout
 
@@ -21,3 +22,5 @@ plugins/<name>/.claude-plugin/plugin.json Claude Code manifest
 plugins/<name>/.codex-plugin/plugin.json  Codex manifest
 plugins/<name>/                           shared skills/, .mcp.json, assets/
 ```
+
+<!-- markdownlint-disable-file -->

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Match the Framework compiler used by test_guard.py. -->
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>5</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <OutputType>Exe</OutputType>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,25 @@
+{
+	"rust-analyzer": {
+		"command": "powershell.exe",
+		"args": [
+			"-NoLogo",
+			"-NoProfile",
+			"-NonInteractive",
+			"-File",
+			"${CLAUDE_PLUGIN_ROOT}/scripts/start.ps1"
+		],
+		"env": {
+			"RUST_ANALYZER_MEMORY_LIMIT_MIB": "${user_config.memory_limit_mib}",
+			"RUST_ANALYZER_EXECUTABLE": "${user_config.server}"
+		},
+		"extensionToLanguage": { ".rs": "rust" },
+		"restartOnCrash": false,
+		"maxRestarts": 0,
+		"shutdownTimeout": 5000,
+		"initializationOptions": {
+			"numThreads": 2,
+			"cachePriming": { "enable": false },
+			"cargo": { "extraEnv": { "CARGO_BUILD_JOBS": "2" } }
+		}
+	}
+}

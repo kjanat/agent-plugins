@@ -31,14 +31,14 @@ sections the server reads. The option names match the VS Code TypeScript setting
 
 ```json
 {
-	"typescript": {
-		"initializationOptions": { "enableTelemetry": false },
-		"settings": {
-			"typescript": {
-				"preferences": { "quoteStyle": "single", "importModuleSpecifier": "non-relative" }
-			}
-		}
-	}
+  "typescript": {
+    "initializationOptions": { "enableTelemetry": false },
+    "settings": {
+      "typescript": {
+        "preferences": { "quoteStyle": "single", "importModuleSpecifier": "non-relative" }
+      }
+    }
+  }
 }
 ```
 

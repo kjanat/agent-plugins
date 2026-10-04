@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Match Windows PowerShell 5.1 Add-Type, including its C# compiler. -->
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>5</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>AgentPlugins.RustAnalyzer</RootNamespace>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+  </PropertyGroup>
+</Project>

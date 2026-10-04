@@ -1,0 +1,29 @@
+{
+	"$schema": "https://www.schemastore.org/claude-code-plugin-manifest.json",
+	"name": "rust-analyzer",
+	"version": "0.1.0",
+	"description": "Rust language server with a Windows process-tree memory budget and reduced background concurrency",
+	"author": {
+		"name": "Kaj Kowalski",
+		"email": "info@kajkowalski.nl"
+	},
+	"repository": "https://github.com/kjanat/agent-plugins",
+	"license": "MIT",
+	"keywords": ["rust", "lsp", "rust-analyzer", "windows", "memory"],
+	"userConfig": {
+		"memory_limit_mib": {
+			"type": "number",
+			"title": "Rust memory budget (MiB)",
+			"description": "Combined committed-memory ceiling for rust-analyzer and its children. Whole MiB; the LSP group stops near 95% of this ceiling.",
+			"default": 6144,
+			"min": 32,
+			"max": 1048576
+		},
+		"server": {
+			"type": "string",
+			"title": "rust-analyzer executable",
+			"description": "Executable on PATH, or an absolute .exe path. The rustup proxy respects the workspace toolchain.",
+			"default": "rust-analyzer.exe"
+		}
+	}
+}
