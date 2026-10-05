@@ -1,4 +1,4 @@
-"""Windows containment tests through the plugin's actual PowerShell entrypoint.
+"""Containment tests through the plugin's compiled .NET entrypoint.
 
 Run: python plugins/rust-analyzer/tests/test_guard.py
 Add --lsp to test installed rust-analyzer initialize/shutdown on an empty workspace.
@@ -13,21 +13,17 @@ import queue
 import subprocess
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 PLUGIN = Path(__file__).resolve().parents[1]
 CONFIG = json.loads((PLUGIN / ".lsp.json").read_text())["rust-analyzer"]
 MANIFEST = json.loads((PLUGIN / ".claude-plugin/plugin.json").read_text())
-COMMAND = [
-    CONFIG["command"],
-    *[
-        argument.replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
-        for argument in CONFIG["args"]
-    ],
-]
+COMMAND = []
+WINDOWS = os.name == "nt"
 
 
-def environment(server, limit="96"):
+def environment(server, limit="192"):
     result = dict(os.environ)
     result.update(
         RUST_ANALYZER_EXECUTABLE=str(server), RUST_ANALYZER_MEMORY_LIMIT_MIB=limit
@@ -36,6 +32,20 @@ def environment(server, limit="96"):
 
 
 def stopped(pid):
+    if not WINDOWS:
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            result = subprocess.run(
+                ["ps", "-o", "stat=", "-p", str(pid)],
+                capture_output=True,
+                timeout=2,
+                check=False,
+            )
+            if result.returncode == 1 or result.stdout.strip().startswith(b"Z"):
+                return True
+            assert result.returncode == 0, result.stderr
+            time.sleep(0.05)
+        return False
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel.OpenProcess.restype = ctypes.c_void_p
     kernel.OpenProcess.argtypes = [ctypes.c_uint, ctypes.c_int, ctypes.c_uint]
@@ -54,28 +64,32 @@ def stopped(pid):
 
 
 def checks(directory):
-    helper = directory / "child with spaces.exe"
-    compiler = (
-        Path(os.environ["WINDIR"]) / "Microsoft.NET/Framework64/v4.0.30319/csc.exe"
-    )
+    helper_directory = directory / "helper with spaces"
     subprocess.run(
         [
-            str(compiler),
-            "/nologo",
-            "/warnaserror",
-            "/platform:x64",
-            "/target:exe",
-            "/out:" + str(helper),
-            str(PLUGIN / "tests/TestChild.cs"),
+            "dotnet",
+            "publish",
+            str(PLUGIN / "tests/TestChild.csproj"),
+            "-c",
+            "Release",
+            "-o",
+            str(helper_directory),
+            "--nologo",
+            "-v",
+            "quiet",
+            "--artifacts-path",
+            str(directory / "helper-build"),
         ],
         check=True,
-        timeout=5,
+        timeout=120,
     )
+    helper = helper_directory / ("TestChild.exe" if WINDOWS else "TestChild")
     child_environment = environment(helper)
 
     def run(*args, payload=b"", env=child_environment, cwd=None):
         return subprocess.run(
             [*COMMAND, *args],
+            check=False,
             env=env,
             cwd=cwd,
             input=payload,
@@ -85,15 +99,14 @@ def checks(directory):
 
     payload = bytes(range(256)) * 4096
     result = run("echo", payload=payload)
-    assert (result.returncode, result.stdout, result.stderr) == (
-        7,
-        payload,
-        b"stderr-only",
-    ), result.stderr
+    assert result.returncode == 7 and result.stdout == payload, result.stderr
+    assert result.stderr.endswith(b"stderr-only"), result.stderr
+    if WINDOWS:
+        assert result.stderr == b"stderr-only", result.stderr
     print("PASS binary stdio, stderr separation, EOF and exit code", flush=True)
 
-    # PowerShell -File has its own argv rules; this validates the actual plugin entrypoint.
-    arguments = ["a b", 'quote"here', "C:\\space path\\", "雪", '\\"', "tail\\\\"]
+    # Include empty arguments and trailing backslashes through the actual launcher.
+    arguments = ["", "a b", 'quote"here', "C:\\space path\\", "雪", '\\"', "tail\\\\"]
     result = run("args", *arguments)
     assert result.returncode == 0, result.stderr
     assert [
@@ -101,9 +114,18 @@ def checks(directory):
     ] == arguments, result.stdout
     print("PASS executable path, Unicode and quoted arguments", flush=True)
 
-    result = run("deny")
-    assert result.returncode == 42, (result.returncode, result.stderr)
-    print("PASS hard cap denies a 128 MiB allocation under a 96 MiB budget", flush=True)
+    if WINDOWS:
+        result = run("deny")
+        assert result.stdout.strip() == b"allocation-denied", (
+            result.returncode,
+            result.stdout,
+            result.stderr,
+        )
+        assert result.returncode in (42, 137), (result.returncode, result.stderr)
+        print(
+            "PASS hard cap denies a 512 MiB allocation under a 192 MiB budget",
+            flush=True,
+        )
 
     result = run("tree")
     assert result.returncode == 137, (result.returncode, result.stderr)
@@ -135,7 +157,7 @@ def checks(directory):
         if process.poll() is None:
             process.kill()
             process.communicate(timeout=5)
-    print("PASS killing the PowerShell supervisor removes descendants", flush=True)
+    print("PASS killing the compiled supervisor removes descendants", flush=True)
 
     result = run("orphan")
     assert result.returncode == 0, result.stderr
@@ -143,7 +165,7 @@ def checks(directory):
     print("PASS normal server exit removes leftover descendant", flush=True)
 
     for server, limit in [
-        (directory / "missing.exe", "96"),
+        (directory / "missing.exe", "192"),
         (helper, "1"),
         (helper, "1.5"),
         (helper, "NaN"),
@@ -158,22 +180,39 @@ def checks(directory):
         flush=True,
     )
 
-    for relative in [str(helper)[2:], helper.drive + helper.name]:
+    for relative in (
+        [str(helper)[2:], helper.drive + helper.name]
+        if WINDOWS
+        else ["./TestChild", "subdir/TestChild"]
+    ):
         result = run("echo", env=environment(relative), cwd=directory)
         assert result.returncode == 125 and not result.stdout, (
             result.returncode,
             result.stderr,
         )
         assert b"relative paths" in result.stderr, result.stderr
-    print(
-        "PASS drive-relative and current-drive-rooted server paths rejected", flush=True
-    )
+    print("PASS relative server paths rejected", flush=True)
 
     path_environment = environment(helper.name)
-    path_environment["PATH"] = str(directory) + os.pathsep + path_environment["PATH"]
+    path_environment["PATH"] = (
+        str(helper_directory) + os.pathsep + path_environment["PATH"]
+    )
     result = run("echo", payload=b"from PATH", env=path_environment)
     assert result.returncode == 7 and result.stdout == b"from PATH", result.stderr
     print("PASS executable resolution from PATH", flush=True)
+
+    if not WINDOWS:
+        for _ in range(5):
+            result = run("args")
+            assert result.returncode == 0 and not result.stdout, result.stderr
+        print("PASS immediate server exit preserves status", flush=True)
+        denied = directory / "not-executable"
+        denied.write_text("not executable")
+        denied.chmod(0o600)
+        result = run(env=environment(denied))
+        assert result.returncode == 125 and not result.stdout, result.stderr
+        assert b"could not launch" in result.stderr, result.stderr
+        print("PASS startup permission failure reports cause and exits 125", flush=True)
 
 
 def lsp_probe(directory):
@@ -215,12 +254,12 @@ def lsp_probe(directory):
                 messages.put(
                     json.loads(process.stdout.read(int(headers["content-length"])))
                 )
-        except Exception as error:
+        except (EOFError, KeyError, OSError, OverflowError, ValueError) as error:
             messages.put(error)
 
     def send(message):
         body = json.dumps({"jsonrpc": "2.0", **message}).encode()
-        process.stdin.write(("Content-Length: %d\r\n\r\n" % len(body)).encode() + body)
+        process.stdin.write(f"Content-Length: {len(body)}\r\n\r\n".encode() + body)
         process.stdin.flush()
 
     def response(identifier):
@@ -266,10 +305,26 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--lsp", action="store_true")
     arguments = parser.parse_args()
-    if os.name != "nt":
-        raise SystemExit("These tests require 64-bit Windows.")
     with tempfile.TemporaryDirectory(prefix="rust-analyzer-guard-") as temporary:
         directory = Path(temporary)
+        # Execute the actual setup-hook command, then the configured LSP command.
+        replacements = {
+            "${CLAUDE_PLUGIN_ROOT}": str(PLUGIN),
+            "${CLAUDE_PLUGIN_DATA}": str(directory / "plugin-data"),
+        }
+
+        def expand(value):
+            for key, replacement in replacements.items():
+                value = value.replace(key, replacement)
+            return value
+
+        hook = json.loads((PLUGIN / "hooks/hooks.json").read_text())["hooks"]["Setup"][
+            0
+        ]["hooks"][0]
+        subprocess.run(
+            [hook["command"], *map(expand, hook["args"])], check=True, timeout=120
+        )
+        COMMAND = [CONFIG["command"], *map(expand, CONFIG["args"])]
         checks(directory)
         if arguments.lsp:
             lsp_probe(directory)

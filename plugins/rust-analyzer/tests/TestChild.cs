@@ -4,27 +4,22 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 
-internal static class TestChild
+namespace AgentPlugins.RustAnalyzer.Tests;
+
+internal static partial class TestChild
 {
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern IntPtr VirtualAlloc(IntPtr address, UIntPtr size, uint allocation, uint protection);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial IntPtr VirtualAlloc(IntPtr address, UIntPtr size, uint allocation, uint protection);
 
     private static Process Child(string mode)
     {
-        using (Process current = Process.GetCurrentProcess())
+        var start = new ProcessStartInfo(Environment.ProcessPath
+            ?? throw new InvalidOperationException("Missing helper executable"), mode)
         {
-            var start = new ProcessStartInfo(current.MainModule.FileName, mode)
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            return Process.Start(start);
-        }
-    }
-
-    private static int CurrentProcessId()
-    {
-        using (Process current = Process.GetCurrentProcess()) return current.Id;
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        return Process.Start(start) ?? throw new InvalidOperationException("Child did not start");
     }
 
     public static int Main(string[] args)
@@ -40,26 +35,37 @@ internal static class TestChild
                     Console.WriteLine(Convert.ToBase64String(Encoding.UTF8.GetBytes(args[i])));
                 return 0;
             case "deny":
-                return VirtualAlloc(IntPtr.Zero, new UIntPtr(128UL * 1024 * 1024), 0x3000, 4) == IntPtr.Zero ? 42 : 43;
+                bool denied = VirtualAlloc(IntPtr.Zero, new UIntPtr(512UL * 1024 * 1024), 0x3000, 4) == IntPtr.Zero;
+                Console.WriteLine(denied ? "allocation-denied" : "allocation-granted");
+                return denied ? 42 : 43;
             case "tree":
                 using (Process child = Child("allocate"))
                 {
-                    Console.WriteLine(CurrentProcessId() + " " + child.Id);
+                    Console.WriteLine(Environment.ProcessId + " " + child.Id);
                     Thread.Sleep(4000);
                 }
                 return 0;
             case "allocate":
-                for (int i = 0; i < 64; i++)
+                var allocations = new List<IntPtr>();
+                try
                 {
-                    if (VirtualAlloc(IntPtr.Zero, new UIntPtr(2UL * 1024 * 1024), 0x3000, 4) == IntPtr.Zero)
-                        return 44;
-                    Thread.Sleep(20);
+                    for (int i = 0; i < 160; i++)
+                    {
+                        IntPtr block = Marshal.AllocHGlobal(2 * 1024 * 1024);
+                        allocations.Add(block);
+                        // Touch every page: Unix budgets resident bytes, not virtual reservations.
+                        for (int offset = 0; offset < 2 * 1024 * 1024; offset += 4096)
+                            Marshal.WriteByte(block, offset, 1);
+                        Thread.Sleep(15);
+                    }
+                    Thread.Sleep(500);
                 }
+                finally { foreach (IntPtr block in allocations) Marshal.FreeHGlobal(block); }
                 return 0;
             case "hold":
                 using (Process child = Child("stay"))
                 {
-                    Console.WriteLine(CurrentProcessId() + " " + child.Id);
+                    Console.WriteLine(Environment.ProcessId + " " + child.Id);
                     Thread.Sleep(4000);
                 }
                 return 0;

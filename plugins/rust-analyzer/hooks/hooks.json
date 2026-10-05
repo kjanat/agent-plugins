@@ -1,0 +1,29 @@
+{
+	"hooks": {
+		"Setup": [
+			{
+				"matcher": "init",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "dotnet",
+						"args": [
+							"publish",
+							"${CLAUDE_PLUGIN_ROOT}/native/RustAnalyzerGuard.csproj",
+							"--configuration",
+							"Release",
+							"--output",
+							"${CLAUDE_PLUGIN_DATA}/runtime/0.2.0",
+							"--nologo",
+							"--verbosity",
+							"quiet",
+							"--artifacts-path",
+							"${CLAUDE_PLUGIN_DATA}/build/0.2.0"
+						],
+						"timeout": 120
+					}
+				]
+			}
+		]
+	}
+}

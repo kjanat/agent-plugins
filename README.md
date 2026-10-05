@@ -9,7 +9,7 @@ codex plugin marketplace add kjanat/agent-plugins
 
 | Plugin                                  | Claude Code | Codex | Description                                       |
 | --------------------------------------- | ----------- | ----- | ------------------------------------------------- |
-| [rust-analyzer](plugins/rust-analyzer/) | Windows     | no    | Rust LSP with a process-tree memory budget        |
+| [rust-analyzer](plugins/rust-analyzer/) | yes         | no    | Rust LSP with platform-specific memory protection |
 | [typescript](plugins/typescript/)       | yes         | no    | TypeScript 7 native language server (`tsc --lsp`) |
 | [blender-mcp](plugins/blender-mcp/)     | yes         | yes   | Blender Lab's official Blender MCP server         |
 

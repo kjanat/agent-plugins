@@ -10,8 +10,8 @@
 	"plugins": [
 		{
 			"name": "rust-analyzer",
-			"description": "Rust language server with a Windows process-tree memory budget",
-			"version": "0.1.0",
+			"description": "Rust language server with Windows job limits and Linux/macOS memory watchdogs",
+			"version": "0.2.0",
 			"source": "./plugins/rust-analyzer",
 			"category": "development"
 		},
