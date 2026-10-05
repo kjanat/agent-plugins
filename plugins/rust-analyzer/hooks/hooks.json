@@ -6,19 +6,23 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "dotnet",
+						"command": "cargo",
 						"args": [
-							"publish",
-							"${CLAUDE_PLUGIN_ROOT}/native/RustAnalyzerGuard.csproj",
-							"--configuration",
-							"Release",
-							"--output",
-							"${CLAUDE_PLUGIN_DATA}/runtime/0.2.0",
-							"--nologo",
-							"--verbosity",
-							"quiet",
-							"--artifacts-path",
-							"${CLAUDE_PLUGIN_DATA}/build/0.2.0"
+							"install",
+							"--git",
+							"https://github.com/kjanat/agent-plugins.git",
+							"--branch",
+							"master",
+							"rust-analyzer-guard",
+							"--root",
+							"${CLAUDE_PLUGIN_DATA}/runtime/0.3.0",
+							"--target-dir",
+							"${CLAUDE_PLUGIN_DATA}/build/0.3.0",
+							"--locked",
+							"--force",
+							"--bin",
+							"rust-analyzer-guard",
+							"--quiet"
 						],
 						"timeout": 120
 					}

@@ -1,7 +1,7 @@
 {
 	"$schema": "https://www.schemastore.org/claude-code-plugin-manifest.json",
 	"name": "rust-analyzer",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"description": "Rust language server with Windows job limits and Linux/macOS memory watchdogs",
 	"author": {
 		"name": "Kaj Kowalski",

@@ -1,15 +1,16 @@
-"""Containment tests through the plugin's compiled .NET entrypoint.
+"""Containment tests through the plugin's native Rust entrypoint.
 
 Run: python plugins/rust-analyzer/tests/test_guard.py
 Add --lsp to test installed rust-analyzer initialize/shutdown on an empty workspace.
 """
 
 import argparse
-import base64
 import ctypes
 import json
 import os
 import queue
+import shutil
+import signal
 import subprocess
 import tempfile
 import threading
@@ -21,6 +22,77 @@ CONFIG = json.loads((PLUGIN / ".lsp.json").read_text())["rust-analyzer"]
 MANIFEST = json.loads((PLUGIN / ".claude-plugin/plugin.json").read_text())
 COMMAND = []
 WINDOWS = os.name == "nt"
+
+
+def install_from_git(directory):
+    # Snapshot working files, including unstaged edits, without touching the index.
+    repository = PLUGIN.parents[1]
+    source = directory / "git source"
+    source.mkdir()
+    files = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        cwd=repository,
+        capture_output=True,
+        check=True,
+        timeout=5,
+    ).stdout
+    for name in set(files.split(b"\0")) - {b""}:
+        relative = Path(os.fsdecode(name))
+        original = repository / relative
+        if original.is_file():
+            destination = source / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(original, destination)
+
+    # A cached plugin has no ancestor Cargo workspace. Exercise exactly that layout.
+    cached = directory / "cached plugin"
+    shutil.copytree(source / PLUGIN.relative_to(repository), cached)
+    hook = json.loads((cached / "hooks/hooks.json").read_text())["hooks"]["Setup"][0][
+        "hooks"
+    ][0]
+    arguments = list(hook["args"])
+    branch = arguments[arguments.index("--branch") + 1]
+    git = [
+        "git",
+        "-c",
+        "core.hooksPath=" + str(directory / "no-hooks"),
+        "-c",
+        "commit.gpgSign=false",
+        "-c",
+        "user.name=Guard test fixture",
+        "-c",
+        "user.email=guard-test@example.invalid",
+    ]
+    for operation in (
+        ["init", "--quiet", "--initial-branch", branch],
+        ["add", "--force", "."],
+        ["commit", "--quiet", "-m", "Test workspace snapshot"],
+    ):
+        subprocess.run([*git, *operation], cwd=source, check=True, timeout=10)
+
+    replacements = {
+        "${CLAUDE_PLUGIN_ROOT}": str(cached),
+        "${CLAUDE_PLUGIN_DATA}": str(directory / "plugin-data"),
+    }
+
+    def expand(value):
+        for key, replacement in replacements.items():
+            value = value.replace(key, replacement)
+        return value
+
+    # Change only the Git URL: build the current snapshot with the actual hook flags.
+    arguments[arguments.index("--git") + 1] = source.as_uri()
+    build_environment = dict(os.environ, CARGO_HOME=str(directory / "cargo-home"))
+    subprocess.run(
+        [hook["command"], *map(expand, arguments)],
+        cwd=cached,
+        env=build_environment,
+        check=True,
+        timeout=hook["timeout"],
+    )
+    installed = json.loads((cached / ".lsp.json").read_text())["rust-analyzer"]
+    print("PASS Git workspace installation from isolated cached plugin", flush=True)
+    return [expand(installed["command"]), *map(expand, installed.get("args", []))]
 
 
 def environment(server, limit="192"):
@@ -65,25 +137,20 @@ def stopped(pid):
 
 def checks(directory):
     helper_directory = directory / "helper with spaces"
+    helper_directory.mkdir()
+    helper = helper_directory / ("test-child.exe" if WINDOWS else "test-child")
     subprocess.run(
         [
-            "dotnet",
-            "publish",
-            str(PLUGIN / "tests/TestChild.csproj"),
-            "-c",
-            "Release",
+            "rustc",
+            "--edition=2024",
+            "-Dwarnings",
+            str(PLUGIN / "tests/test_child.rs"),
             "-o",
-            str(helper_directory),
-            "--nologo",
-            "-v",
-            "quiet",
-            "--artifacts-path",
-            str(directory / "helper-build"),
+            str(helper),
         ],
         check=True,
         timeout=120,
     )
-    helper = helper_directory / ("TestChild.exe" if WINDOWS else "TestChild")
     child_environment = environment(helper)
 
     def run(*args, payload=b"", env=child_environment, cwd=None):
@@ -100,7 +167,8 @@ def checks(directory):
     payload = bytes(range(256)) * 4096
     result = run("echo", payload=payload)
     assert result.returncode == 7 and result.stdout == payload, result.stderr
-    assert result.stderr.endswith(b"stderr-only"), result.stderr
+    # Unix startup diagnostics and the child's stderr may arrive in either order.
+    assert b"stderr-only" in result.stderr, result.stderr
     if WINDOWS:
         assert result.stderr == b"stderr-only", result.stderr
     print("PASS binary stdio, stderr separation, EOF and exit code", flush=True)
@@ -110,7 +178,8 @@ def checks(directory):
     result = run("args", *arguments)
     assert result.returncode == 0, result.stderr
     assert [
-        base64.b64decode(line).decode() for line in result.stdout.splitlines()
+        bytes.fromhex(line.decode("ascii")).decode()
+        for line in result.stdout.splitlines()
     ] == arguments, result.stdout
     print("PASS executable path, Unicode and quoted arguments", flush=True)
 
@@ -214,6 +283,50 @@ def checks(directory):
         assert b"could not launch" in result.stderr, result.stderr
         print("PASS startup permission failure reports cause and exits 125", flush=True)
 
+        process = subprocess.Popen(
+            [*COMMAND, "hold"],
+            env=child_environment,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        try:
+            output = queue.Queue()
+            threading.Thread(
+                target=lambda: output.put(process.stdout.readline()), daemon=True
+            ).start()
+            pids = [int(pid) for pid in output.get(timeout=5).split()]
+            assert len(pids) == 2
+            result = subprocess.run(
+                ["ps", "-o", "ppid=", "-p", str(pids[0])],
+                capture_output=True,
+                check=True,
+                timeout=2,
+            )
+            inner = int(result.stdout)
+            result = subprocess.run(
+                ["ps", "-o", "ppid=,pgid=", "-p", str(inner)],
+                capture_output=True,
+                check=True,
+                timeout=2,
+            )
+            assert inner > 1 and inner != os.getpid()
+            assert [int(value) for value in result.stdout.split()] == [
+                process.pid,
+                inner,
+            ]
+            os.kill(inner, signal.SIGKILL)
+            process.communicate(timeout=5)
+            assert process.returncode == 125
+            assert all(stopped(pid) for pid in pids)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.communicate(timeout=5)
+        print(
+            "PASS unexpected inner-supervisor death cleans up the LSP group", flush=True
+        )
+
 
 def lsp_probe(directory):
     server = MANIFEST["userConfig"]["server"]["default"]
@@ -307,24 +420,7 @@ if __name__ == "__main__":
     arguments = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="rust-analyzer-guard-") as temporary:
         directory = Path(temporary)
-        # Execute the actual setup-hook command, then the configured LSP command.
-        replacements = {
-            "${CLAUDE_PLUGIN_ROOT}": str(PLUGIN),
-            "${CLAUDE_PLUGIN_DATA}": str(directory / "plugin-data"),
-        }
-
-        def expand(value):
-            for key, replacement in replacements.items():
-                value = value.replace(key, replacement)
-            return value
-
-        hook = json.loads((PLUGIN / "hooks/hooks.json").read_text())["hooks"]["Setup"][
-            0
-        ]["hooks"][0]
-        subprocess.run(
-            [hook["command"], *map(expand, hook["args"])], check=True, timeout=120
-        )
-        COMMAND = [CONFIG["command"], *map(expand, CONFIG["args"])]
+        COMMAND = install_from_git(directory)
         checks(directory)
         if arguments.lsp:
             lsp_probe(directory)

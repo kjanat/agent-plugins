@@ -1,7 +1,7 @@
 # rust-analyzer
 
 Rust code intelligence for Claude Code on **Windows, Linux and macOS**, with a compiled
-.NET 10 supervisor. Claude stays outside the guarded LSP group.
+native Rust supervisor. Claude stays outside the guarded LSP group.
 
 | Platform      | Protection                                                           |
 | ------------- | -------------------------------------------------------------------- |
@@ -13,9 +13,14 @@ next check. It does not use Linux cgroups or macOS virtual-address-space limits.
 
 ## Install
 
-Requires a **64-bit .NET 10 SDK**, Python only for tests, Claude Code with plugin Setup hooks
+Requires **Rust 1.99+ with Cargo and a native linker**, Claude Code with plugin Setup hooks
 and LSP `userConfig` support, and rust-analyzer on PATH. Supported architectures: x64 and ARM64.
-The SDK builds the launcher once; its .NET 10 runtime runs subsequent LSP sessions.
+Cargo builds the guard once; subsequent LSP sessions launch the native executable directly.
+There is no .NET SDK/runtime dependency. Python is needed only for tests.
+
+Use a Rust toolchain installed through rustup. Windows MSVC needs the Visual Studio C++ build
+tools; Linux needs a C linker/toolchain; macOS needs the Xcode Command Line Tools. These are
+the usual prerequisites for building native Rust projects.
 
 ```sh
 rustup component add rust-analyzer rust-src
@@ -27,24 +32,33 @@ claude --init-only
 
 Run these commands in the project where you want protection. Disable other plugins claiming
 `.rs`, including `rust-guard@local-rust-guard` if you used the earlier standalone setup.
-Restart Claude after switching. For an unpublished checkout, use its absolute directory as
-the marketplace source instead of `kjanat/agent-plugins`.
+Restart Claude after switching.
 
-`claude --init-only` runs the plugin's Setup hook, publishing the launcher into the persistent
-plugin data directory under `runtime/0.2.0`. Build intermediates stay under its `build/0.2.0`
-directory. Repeat initialization after plugin updates. No PowerShell launcher, Framework
-compiler, or per-LSP compilation remains. Setup needs access to the SDK's restore sources.
+`claude --init-only` runs the plugin's Setup hook: Cargo fetches the complete
+`https://github.com/kjanat/agent-plugins.git` repository's `master` branch and installs the
+`rust-analyzer-guard` package with `--locked`. This retains the root Cargo workspace even
+when Claude caches only the plugin directory. The executable goes under `runtime/0.3.0/bin`
+in the persistent plugin data directory; build intermediates stay under `build/0.3.0`.
+Repeat initialization after updates. Dependencies use the fetched workspace-root `Cargo.lock`;
+the guard source follows the moving `master` branch, independently of the cached plugin version.
+Setup needs GitHub access and, for uncached dependencies, registry access. The configured
+command resolves the `.exe` suffix on Windows.
 
-If setup fails, check `dotnet --version` (10 or newer), then run `claude --init-only --debug`
+If setup fails, check `rustc --version` and `cargo --version`, then run `claude --init-only --debug`
 to see hook errors. Setup-hook failures do not block Claude itself. A missing compiled guard
 prevents this LSP from starting; there is no unguarded fallback.
 
-To test a local plugin without registering a marketplace:
+To load a local plugin without registering a marketplace:
 
 ```sh
 claude --plugin-dir /absolute/path/to/agent-plugins/plugins/rust-analyzer --init-only
 claude --plugin-dir /absolute/path/to/agent-plugins/plugins/rust-analyzer
 ```
+
+The Setup hook still builds GitHub's `master`, including with `--plugin-dir`; unpushed Rust
+changes are not installed by initialization. The tests below build an isolated Git snapshot
+of the current checkout, including uncommitted changes. Push the workspace changes to `master`
+before using the Git-based Setup hook against GitHub.
 
 ## Configuration
 
@@ -78,7 +92,7 @@ first, in which case its exit code is preserved. Closing or killing the guard cl
 handle and removes remaining children, including after normal server exit.
 
 On **Linux/macOS**, an inner supervisor establishes its own process group before launching the
-server. A private control pipe reports readiness and the server's exit code; LSP stdin,
+server. A private Unix socket reports readiness and the server's exit code; LSP stdin,
 stdout and stderr remain inherited byte streams. Every 100 ms the outer supervisor sums
 member RSS, including the inner supervisor. At the budget it kills that group and returns
 137. The inner supervisor remains alive until cleanup and checks its parent's identity every
@@ -86,8 +100,8 @@ member RSS, including the inner supervisor. At the budget it kills that group an
 
 Unix limitations: polling permits overshoot; shared resident pages may be counted more than
 once; swapped/nonresident memory is excluded. Descendants that deliberately create a new
-session or process group escape this watchdog. Killing the inner supervisor separately can
-also interfere with cleanup. This is best-effort protection for ordinary LSP children, not
+session or process group escape this watchdog. Simultaneously killing both supervisors can
+prevent cleanup. This is best-effort protection for ordinary LSP children, not
 kernel-enforced containment or a security sandbox.
 
 Both backends clean up remaining children after normal server exit, preserve normal exit
@@ -101,27 +115,35 @@ restore terminal modes after an unrelated Claude crash.
 
 ## Development and tests
 
-`native/Guard.cs` resolves configuration, `WindowsGuard.cs` owns Job Object containment, and
-`UnixGuard.cs` owns process-group supervision. Native calls use `LibraryImport` source
-generation. Both projects target .NET 10 and treat compiler warnings as errors.
+`native/src/main.rs` resolves configuration, `windows.rs` owns Job Object containment, and
+`unix.rs` owns process-group supervision. Windows APIs use Microsoft's `windows-sys` bindings;
+Unix APIs use `libc`. Linux reads resident pages from `/proc`; macOS reads task information
+through libproc. Raw LSP streams are inherited without text decoding or serialization.
 
 ```sh
 claude plugin validate --strict plugins/rust-analyzer
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
 python plugins/rust-analyzer/tests/test_guard.py
 python plugins/rust-analyzer/tests/test_guard.py --lsp
 ```
 
-Python 3.10+ tests execute the actual Setup-hook build command and configured LSP entrypoint
-in temporary directories. A small compiled helper exercises binary stdio, quoting, memory
+Python 3.10+ and Git are required for tests. Tests snapshot the working checkout into a temporary
+Git repository and copy just the plugin subtree into an isolated cache. They execute the actual
+Setup hook with only its Git URL redirected to that snapshot, then the configured LSP entrypoint.
+Temporary Git, Cargo and installation directories are removed afterward.
+A small compiled helper exercises binary stdio, quoting, memory
 accounting, group termination, cleanup after guard death and normal exit, and invalid settings.
 Windows additionally verifies the kernel denies a 512 MiB allocation under a 192 MiB budget.
-Unix additionally checks immediate exits and permission-denied startup. Test children expire
+Unix additionally checks immediate exits, permission-denied startup and unexpected inner-supervisor
+death. Test children expire
 after a few seconds if cleanup fails. `--lsp` initializes and shuts down the installed
 rust-analyzer on an empty workspace; it does not index a large repository.
 
 Verified locally on Windows x64 and Linux x64 (WSL), with a real rust-analyzer handshake on
-Windows. macOS and ARM64 have not been tested locally. The GitHub Actions workflow runs the
-containment tests on Windows, Linux and macOS when pushed; no hosted run is claimed here.
+Windows. macOS ARM64 receives a cross-target compiler/Clippy check, but has not been run locally.
+The GitHub Actions workflow runs formatting, Clippy and containment tests on Windows, Linux and
+macOS when pushed; no hosted run is claimed here.
 
 ## References
 

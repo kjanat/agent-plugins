@@ -1,0 +1,11 @@
+[workspace]
+resolver = "3"
+members  = ["plugins/*/native"]
+
+[workspace.package]
+edition      = "2024"
+rust-version = "1.99"
+homepage     = "https://github.com/kjanat/agent-plugins/#agent-plugins"
+repository   = "https://github.com/kjanat/agent-plugins"
+license      = "MIT"
+publish      = false

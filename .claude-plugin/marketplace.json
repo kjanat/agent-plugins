@@ -11,7 +11,7 @@
 		{
 			"name": "rust-analyzer",
 			"description": "Rust language server with Windows job limits and Linux/macOS memory watchdogs",
-			"version": "0.2.0",
+			"version": "0.3.0",
 			"source": "./plugins/rust-analyzer",
 			"category": "development"
 		},

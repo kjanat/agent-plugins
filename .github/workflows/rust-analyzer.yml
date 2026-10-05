@@ -2,14 +2,13 @@ name: Rust analyzer guard
 
 on:
   push:
-    paths:
+    paths: &paths
+      - Cargo.*
+      - plugins/*/native/**
       - plugins/rust-analyzer/**
       - .github/workflows/rust-analyzer.yml
-  pull_request:
-    paths:
-      - plugins/rust-analyzer/**
-      - .github/workflows/rust-analyzer.yml
-  workflow_dispatch:
+  pull_request: { paths: *paths }
+  workflow_dispatch: null
 
 permissions:
   contents: read
@@ -25,17 +24,17 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+      matrix: { os: [windows-latest, ubuntu-latest, macos-latest] }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
-        with:
-          dotnet-version: 10.0.x
+        with: { persist-credentials: false }
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with: { toolchain: stable, components: "rustfmt, clippy" }
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.x"
+        with: { python-version: "3.x" }
+      - name: Check Rust formatting
+        run: cargo fmt --all --check
+      - name: Check Rust warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test process containment and LSP transport
         run: python plugins/rust-analyzer/tests/test_guard.py

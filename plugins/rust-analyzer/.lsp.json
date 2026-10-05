@@ -1,9 +1,6 @@
 {
 	"rust-analyzer": {
-		"command": "dotnet",
-		"args": [
-			"${CLAUDE_PLUGIN_DATA}/runtime/0.2.0/RustAnalyzerGuard.dll"
-		],
+		"command": "${CLAUDE_PLUGIN_DATA}/runtime/0.3.0/bin/rust-analyzer-guard",
 		"env": {
 			"RUST_ANALYZER_MEMORY_LIMIT_MIB": "${user_config.memory_limit_mib}",
 			"RUST_ANALYZER_EXECUTABLE": "${user_config.server}"
