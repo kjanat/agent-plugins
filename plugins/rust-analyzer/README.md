@@ -25,8 +25,12 @@ the usual prerequisites for building native Rust projects.
 ```sh
 rustup component add rust-analyzer rust-src
 claude plugin marketplace add kjanat/agent-plugins
-claude plugin install rust-analyzer@kjanat --scope local
-claude plugin disable rust-analyzer-lsp@claude-plugins-official --scope local
+claude plugin install rust-analyzer@kjanat [--scope user|local|project] [--config memory_limit_mib=VALUE] [--config server=RUST_ANALYZER_BINARY]
+
+# e.g.
+claude plugin install rust-analyzer@kjanat --scope user --config memory_limit_mib=2048 --config server=rust-analyzer
+
+claude plugin disable rust-analyzer-lsp@claude-plugins-official [--scope user|local|project]
 claude --init-only
 ```
 
