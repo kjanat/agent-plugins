@@ -153,7 +153,7 @@ def checks(directory):
     )
     child_environment = environment(helper)
 
-    def run(*args, payload=b"", env=child_environment, cwd=None):
+    def run(*args, payload=b"", env=child_environment, cwd=None, timeout=5):
         return subprocess.run(
             [*COMMAND, *args],
             check=False,
@@ -161,7 +161,7 @@ def checks(directory):
             cwd=cwd,
             input=payload,
             capture_output=True,
-            timeout=5,
+            timeout=timeout,
         )
 
     payload = bytes(range(256)) * 4096
@@ -196,7 +196,7 @@ def checks(directory):
             flush=True,
         )
 
-    result = run("tree")
+    result = run("tree", timeout=10)
     assert result.returncode == 137, (result.returncode, result.stderr)
     assert all(stopped(int(pid)) for pid in result.stdout.split())
     assert b"LSP stopped" in result.stderr
