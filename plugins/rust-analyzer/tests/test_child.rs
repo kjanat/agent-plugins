@@ -61,16 +61,37 @@ fn run() -> io::Result<i32> {
         #[cfg(windows)]
         Some("deny") => Ok(deny_allocation()),
         Some(mode @ ("tree" | "hold")) => {
-            let spawned = child(if mode == "tree" { "allocate" } else { "stay" })?;
+            let mut spawned = child(if mode == "tree" { "allocate" } else { "stay" })?;
             println!("{} {}", process::id(), spawned.id());
-            thread::sleep(Duration::from_secs(4));
+            if mode == "tree" {
+                // Let the allocation workload finish even on slower CI runners.
+                spawned.wait()?;
+            } else {
+                thread::sleep(Duration::from_secs(4));
+            }
             Ok(0)
         }
         Some("allocate") => {
             let mut blocks = Vec::new();
+            let mut random = 0x4d59_5df4_d0f3_3173_u64;
             for _ in 0..160 {
-                // Touch resident pages; Unix measures RSS rather than virtual reservations.
-                blocks.push(vec![1_u8; 2 * 1024 * 1024]);
+                // Repeated bytes are highly compressible on macOS. Fill every page
+                // with deterministic noise to resist memory compression.
+                let mut block = vec![0_u64; 2 * 1024 * 1024 / size_of::<u64>()];
+                for word in &mut block {
+                    random ^= random << 13;
+                    random ^= random >> 7;
+                    random ^= random << 17;
+                    *word = random;
+                }
+                blocks.push(block);
+                // Keep earlier pages active while the watchdog samples the group.
+                // A 4 KiB stride also covers larger native page sizes.
+                for block in &mut blocks {
+                    for word in block.iter_mut().step_by(4096 / size_of::<u64>()) {
+                        *word = std::hint::black_box(*word).wrapping_add(1);
+                    }
+                }
                 thread::sleep(Duration::from_millis(15));
             }
             std::hint::black_box(&blocks);
