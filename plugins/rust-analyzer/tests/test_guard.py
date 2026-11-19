@@ -278,11 +278,15 @@ def checks(directory):
     rustup_directory.mkdir()
     shutil.copy2(helper, rustup_directory / ("rustup" + suffix))
 
-    def rustup_environment(which=None):
+    state = directory / "fake rustup state"
+
+    def rustup_environment(**variables):
         result = environment("rust-analyzer")
-        result.pop("GUARD_TEST_RUSTUP_WHICH", None)
-        if which is not None:
-            result["GUARD_TEST_RUSTUP_WHICH"] = which
+        for key in [key for key in result if key.startswith("GUARD_TEST_RUSTUP_")]:
+            del result[key]
+        result["GUARD_TEST_RUSTUP_STATE"] = str(state)
+        for key, value in variables.items():
+            result["GUARD_TEST_RUSTUP_" + key.upper()] = value
         result["PATH"] = os.pathsep.join([
             str(decoy_directory),
             str(rustup_directory),
@@ -290,20 +294,64 @@ def checks(directory):
         ])
         return result
 
-    result = run("echo", payload=b"via rustup", env=rustup_environment(str(helper)))
+    def installed():
+        return state.read_text() if state.exists() else None
+
+    result = run(
+        "echo", payload=b"via rustup", env=rustup_environment(which=str(helper))
+    )
     assert result.returncode == 7 and result.stdout == b"via rustup", result.stderr
+    assert installed() is None
     print("PASS rust-analyzer resolves through rustup which", flush=True)
 
-    result = run("echo", env=rustup_environment())
+    state.write_text("fixture-default")
+    result = run(
+        "echo",
+        payload=b"default toolchain",
+        env=rustup_environment(default="fixture-default", fallback=str(helper)),
+    )
+    assert result.returncode == 7 and result.stdout == b"default toolchain", (
+        result.stderr
+    )
+    assert b"using rust-analyzer from toolchain fixture-default" in result.stderr
+    assert b"installing" not in result.stderr, result.stderr
+    state.unlink()
+    print("PASS missing workspace component uses the default toolchain", flush=True)
+
+    result = run(
+        "echo",
+        payload=b"installed",
+        env=rustup_environment(default="fixture-default", fallback=str(helper)),
+    )
+    assert result.returncode == 7 and result.stdout == b"installed", result.stderr
+    assert installed() == "fixture-default"
+    assert b"installing rust-analyzer for toolchain fixture-default" in result.stderr
+    state.unlink()
+    print("PASS missing default component is installed, then used", flush=True)
+
+    result = run(
+        "echo", payload=b"stable", env=rustup_environment(fallback=str(helper))
+    )
+    assert result.returncode == 7 and result.stdout == b"stable", result.stderr
+    assert installed() == "stable"
+    state.unlink()
+    print("PASS without a default toolchain, stable gets the component", flush=True)
+
+    result = run("echo", env=rustup_environment(default="fixture-default"))
     assert result.returncode == 125 and not result.stdout, result.stderr
-    assert b"unknown binary 'rust-analyzer' in toolchain 'fixture'" in result.stderr
-    assert b"rustup component add rust-analyzer" in result.stderr, result.stderr
+    assert (
+        b"rustup component add rust-analyzer --toolchain fixture-default"
+        in result.stderr
+    ), result.stderr
+    assert installed() is None
     print(
-        "PASS missing toolchain component fails closed without PATH fallback",
-        flush=True,
+        "PASS failed component install fails closed without PATH fallback", flush=True
     )
 
-    result = run("echo", env=rustup_environment("relative" + os.sep + "server"))
+    result = run(
+        "echo",
+        env=rustup_environment(which="relative" + os.sep + "server"),
+    )
     assert result.returncode == 125 and not result.stdout, result.stderr
     assert b"relative path" in result.stderr, result.stderr
     print("PASS relative rustup which output rejected", flush=True)

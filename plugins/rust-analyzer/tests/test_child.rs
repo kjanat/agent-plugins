@@ -42,6 +42,41 @@ fn deny_allocation() -> i32 {
     if denied { 42 } else { 43 }
 }
 
+fn rustup() -> i32 {
+    let arguments: Vec<String> = env::args().skip(1).collect();
+    let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    let variable = |name: &str| env::var(format!("GUARD_TEST_RUSTUP_{name}")).ok();
+    let installed = variable("STATE").and_then(|state| std::fs::read_to_string(state).ok());
+    let found = match arguments.as_slice() {
+        ["which", "rust-analyzer"] => variable("WHICH"),
+        ["which", "--toolchain", toolchain, "rust-analyzer"] => installed
+            .filter(|installed| installed == toolchain)
+            .and(variable("FALLBACK")),
+        ["default"] => variable("DEFAULT").map(|toolchain| format!("{toolchain} (default)")),
+        [
+            "component",
+            "add",
+            "rust-analyzer",
+            "--toolchain",
+            toolchain,
+        ] => variable("FALLBACK")
+            .zip(variable("STATE"))
+            .and_then(|(_, state)| std::fs::write(state, toolchain).ok())
+            .map(|()| String::new()),
+        _ => None,
+    };
+    match found {
+        Some(output) => {
+            println!("{output}");
+            0
+        }
+        None => {
+            eprintln!("error: fixture rustup refused {}", arguments.join(" "));
+            1
+        }
+    }
+}
+
 fn run() -> io::Result<i32> {
     match env::args().nth(1).as_deref() {
         Some("echo") => {
@@ -106,18 +141,7 @@ fn run() -> io::Result<i32> {
             thread::sleep(Duration::from_secs(4));
             Ok(0)
         }
-        Some("which") if env::args().skip(2).eq(["rust-analyzer".to_owned()]) => {
-            match env::var("GUARD_TEST_RUSTUP_WHICH") {
-                Ok(path) => {
-                    println!("{path}");
-                    Ok(0)
-                }
-                Err(_) => {
-                    eprintln!("error: unknown binary 'rust-analyzer' in toolchain 'fixture'");
-                    Ok(1)
-                }
-            }
-        }
+        Some("which" | "default" | "component") => Ok(rustup()),
         _ => Ok(99),
     }
 }

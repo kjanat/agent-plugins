@@ -84,10 +84,11 @@ resolving a bare PATH name.
 
 When `server` is `rust-analyzer` and `rustup` is on PATH, the guard runs
 `rustup which rust-analyzer` in the workspace and launches the binary of the workspace
-toolchain. If that toolchain lacks the component, the guard refuses to start; run
-`rustup component add rust-analyzer` there. A standalone
-rust-analyzer, such as a distribution package, needs an absolute `server` path on machines
-with rustup. Without rustup, the guard takes the first `rust-analyzer` on PATH.
+toolchain. If that toolchain lacks the component, the guard launches rust-analyzer from
+rustup's default toolchain, or `stable` when no default is set, and installs the component
+there first when it is missing. A standalone rust-analyzer, such as a distribution package,
+needs an absolute `server` path on machines with rustup. Without rustup, the guard takes the
+first `rust-analyzer` on PATH.
 
 Two analysis workers, at most two Cargo jobs, and disabled eager cache priming reduce
 background work. Navigation, diagnostics, proc macros and build scripts remain enabled.

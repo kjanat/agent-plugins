@@ -130,8 +130,49 @@ fn search(name: &OsStr) -> Option<PathBuf> {
 }
 
 fn toolchain_server(rustup: &Path) -> io::Result<PathBuf> {
+    let workspace = match rustup_which(rustup, None) {
+        Ok(path) => return Ok(path),
+        Err(error) => error,
+    };
+    let toolchain = rustup_output(rustup, &["default"])
+        .ok()
+        .and_then(|output| output.split_whitespace().next().map(str::to_owned))
+        .unwrap_or_else(|| "stable".into());
+    eprintln!("rust-guard: {workspace}; using {PROXY} from toolchain {toolchain}");
+    if let Ok(path) = rustup_which(rustup, Some(&toolchain)) {
+        return Ok(path);
+    }
+    eprintln!("rust-guard: installing {PROXY} for toolchain {toolchain}");
+    rustup_output(
+        rustup,
+        &["component", "add", PROXY, "--toolchain", &toolchain],
+    )?;
+    rustup_which(rustup, Some(&toolchain))
+}
+
+fn rustup_which(rustup: &Path, toolchain: Option<&str>) -> io::Result<PathBuf> {
+    let arguments = match toolchain {
+        Some(toolchain) => vec!["which", "--toolchain", toolchain, PROXY],
+        None => vec!["which", PROXY],
+    };
+    let output = rustup_output(rustup, &arguments)?;
+    let path = PathBuf::from(output.trim_end_matches(['\r', '\n']));
+    if !path.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "rustup {} returned a relative path: {}",
+                arguments.join(" "),
+                path.display()
+            ),
+        ));
+    }
+    validate(path)
+}
+
+fn rustup_output(rustup: &Path, arguments: &[&str]) -> io::Result<String> {
     let mut command = Command::new(rustup);
-    command.args(["which", PROXY]);
+    command.args(arguments);
     #[cfg(windows)]
     std::os::windows::process::CommandExt::creation_flags(
         &mut command,
@@ -140,30 +181,21 @@ fn toolchain_server(rustup: &Path) -> io::Result<PathBuf> {
     let output = command.output().map_err(|error| {
         io::Error::new(
             error.kind(),
-            format!("could not run {} which {PROXY}: {error}", rustup.display()),
+            format!(
+                "could not run {} {}: {error}",
+                rustup.display(),
+                arguments.join(" ")
+            ),
         )
     })?;
     if !output.status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            format!(
-                "{}; run `rustup component add {PROXY}` in this workspace",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ),
-        ));
+        return Err(io::Error::other(format!(
+            "rustup {}: {}",
+            arguments.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
     }
-    let path =
-        PathBuf::from(String::from_utf8_lossy(&output.stdout).trim_end_matches(['\r', '\n']));
-    if !path.is_absolute() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "rustup which {PROXY} returned a relative path: {}",
-                path.display()
-            ),
-        ));
-    }
-    validate(path)
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 fn validate(path: PathBuf) -> io::Result<PathBuf> {
