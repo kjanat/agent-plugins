@@ -30,7 +30,7 @@
 		"server": {
 			"type": "string",
 			"title": "rust-analyzer executable",
-			"description": "Executable on PATH or an absolute executable path. The rustup proxy respects the workspace toolchain.",
+			"description": "Executable on PATH or an absolute executable path. With rustup installed, rust-analyzer resolves to the workspace toolchain component.",
 			"default": "rust-analyzer"
 		}
 	}

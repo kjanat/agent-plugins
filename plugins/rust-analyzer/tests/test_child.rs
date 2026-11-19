@@ -106,6 +106,18 @@ fn run() -> io::Result<i32> {
             thread::sleep(Duration::from_secs(4));
             Ok(0)
         }
+        Some("which") if env::args().skip(2).eq(["rust-analyzer".to_owned()]) => {
+            match env::var("GUARD_TEST_RUSTUP_WHICH") {
+                Ok(path) => {
+                    println!("{path}");
+                    Ok(0)
+                }
+                Err(_) => {
+                    eprintln!("error: unknown binary 'rust-analyzer' in toolchain 'fixture'");
+                    Ok(1)
+                }
+            }
+        }
         _ => Ok(99),
     }
 }

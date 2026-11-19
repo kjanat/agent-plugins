@@ -1,4 +1,10 @@
-use std::{env, ffi::OsString, io, path::PathBuf};
+use std::{
+    env,
+    ffi::{OsStr, OsString},
+    io,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod unix;
@@ -13,6 +19,7 @@ compile_error!("Supported hosts: Windows, Linux and macOS on x64 or ARM64.");
 
 const FAILURE: u32 = 125;
 const BUDGET: u32 = 137;
+const PROXY: &str = "rust-analyzer";
 
 fn main() {
     let code = match run() {
@@ -78,30 +85,85 @@ fn resolve(value: OsString) -> io::Result<PathBuf> {
             "relative paths are not supported; use an absolute executable or a PATH name",
         ));
     }
-    #[cfg(windows)]
-    let value = {
-        let mut name = value;
-        if !path
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
-        {
-            name.push(".exe");
-        }
-        name
-    };
-    for directory in env::split_paths(&env::var_os("PATH").unwrap_or_default()) {
-        if !directory.is_absolute() {
-            continue;
-        }
-        let candidate = directory.join(&value);
-        if candidate.is_file() {
-            return validate(candidate);
-        }
+    let name = executable_name(value);
+    if is_proxy(&name)
+        && let Some(rustup) = search(&executable_name("rustup".into()))
+    {
+        return toolchain_server(&rustup);
     }
-    Err(io::Error::new(
-        io::ErrorKind::NotFound,
-        format!("server not found on PATH: {}", value.to_string_lossy()),
-    ))
+    search(&name).map_or_else(
+        || {
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("server not found on PATH: {}", name.to_string_lossy()),
+            ))
+        },
+        validate,
+    )
+}
+
+fn executable_name(value: OsString) -> OsString {
+    #[cfg(windows)]
+    if !Path::new(&value)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+    {
+        let mut name = value;
+        name.push(".exe");
+        return name;
+    }
+    value
+}
+
+fn is_proxy(name: &OsStr) -> bool {
+    #[cfg(windows)]
+    return name.eq_ignore_ascii_case("rust-analyzer.exe");
+    #[cfg(not(windows))]
+    return name == PROXY;
+}
+
+fn search(name: &OsStr) -> Option<PathBuf> {
+    env::split_paths(&env::var_os("PATH").unwrap_or_default())
+        .filter(|directory| directory.is_absolute())
+        .map(|directory| directory.join(name))
+        .find(|candidate| candidate.is_file())
+}
+
+fn toolchain_server(rustup: &Path) -> io::Result<PathBuf> {
+    let mut command = Command::new(rustup);
+    command.args(["which", PROXY]);
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(
+        &mut command,
+        windows_sys::Win32::System::Threading::CREATE_NO_WINDOW,
+    );
+    let output = command.output().map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!("could not run {} which {PROXY}: {error}", rustup.display()),
+        )
+    })?;
+    if !output.status.success() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!(
+                "{}; run `rustup component add {PROXY}` in this workspace",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ),
+        ));
+    }
+    let path =
+        PathBuf::from(String::from_utf8_lossy(&output.stdout).trim_end_matches(['\r', '\n']));
+    if !path.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "rustup which {PROXY} returned a relative path: {}",
+                path.display()
+            ),
+        ));
+    }
+    validate(path)
 }
 
 fn validate(path: PathBuf) -> io::Result<PathBuf> {

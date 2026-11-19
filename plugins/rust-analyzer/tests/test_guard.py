@@ -270,6 +270,66 @@ def checks(directory):
     assert result.returncode == 7 and result.stdout == b"from PATH", result.stderr
     print("PASS executable resolution from PATH", flush=True)
 
+    suffix = ".exe" if WINDOWS else ""
+    decoy_directory = directory / "decoy proxy"
+    decoy_directory.mkdir()
+    (decoy_directory / ("rust-analyzer" + suffix)).write_text("not executable")
+    rustup_directory = directory / "fake rustup"
+    rustup_directory.mkdir()
+    shutil.copy2(helper, rustup_directory / ("rustup" + suffix))
+
+    def rustup_environment(which=None):
+        result = environment("rust-analyzer")
+        result.pop("GUARD_TEST_RUSTUP_WHICH", None)
+        if which is not None:
+            result["GUARD_TEST_RUSTUP_WHICH"] = which
+        result["PATH"] = os.pathsep.join([
+            str(decoy_directory),
+            str(rustup_directory),
+            result["PATH"],
+        ])
+        return result
+
+    result = run("echo", payload=b"via rustup", env=rustup_environment(str(helper)))
+    assert result.returncode == 7 and result.stdout == b"via rustup", result.stderr
+    print("PASS rust-analyzer resolves through rustup which", flush=True)
+
+    result = run("echo", env=rustup_environment())
+    assert result.returncode == 125 and not result.stdout, result.stderr
+    assert b"unknown binary 'rust-analyzer' in toolchain 'fixture'" in result.stderr
+    assert b"rustup component add rust-analyzer" in result.stderr, result.stderr
+    print(
+        "PASS missing toolchain component fails closed without PATH fallback",
+        flush=True,
+    )
+
+    result = run("echo", env=rustup_environment("relative" + os.sep + "server"))
+    assert result.returncode == 125 and not result.stdout, result.stderr
+    assert b"relative path" in result.stderr, result.stderr
+    print("PASS relative rustup which output rejected", flush=True)
+
+    broken_directory = directory / "broken rustup"
+    broken_directory.mkdir()
+    broken = broken_directory / ("rustup" + suffix)
+    broken.write_text("not executable")
+    if not WINDOWS:
+        broken.chmod(0o600)
+    broken_environment = environment("rust-analyzer")
+    broken_environment["PATH"] = str(broken_directory)
+    result = run("echo", env=broken_environment)
+    assert result.returncode == 125 and not result.stdout, result.stderr
+    assert b"could not run" in result.stderr, result.stderr
+    print("PASS unlaunchable rustup fails closed", flush=True)
+
+    plain_directory = directory / "no rustup"
+    plain_directory.mkdir()
+    shutil.copy2(helper, plain_directory / ("rust-analyzer" + suffix))
+    plain_environment = environment("rust-analyzer")
+    plain_environment["PATH"] = str(plain_directory)
+    result = run("echo", payload=b"without rustup", env=plain_environment)
+    assert result.returncode == 7 and result.stdout == b"without rustup", result.stderr
+    print("PASS rust-analyzer resolves from PATH without rustup", flush=True)
+
     if not WINDOWS:
         for _ in range(5):
             result = run("args")
