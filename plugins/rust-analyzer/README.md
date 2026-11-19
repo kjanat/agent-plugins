@@ -39,8 +39,8 @@ fetches the complete `https://github.com/kjanat/agent-plugins.git` repository's 
 and installs the `rust-analyzer-guard` package with `--locked`. The first session builds the
 guard, and Claude's first response waits for that build. Later sessions reinstall only when
 `master` has moved. `+stable` keeps a project's `rust-toolchain.toml` away from the build. The
-executable goes under `runtime/0.3.0/bin` in the persistent plugin data directory; build
-intermediates stay under `build/0.3.0`. Dependencies use the fetched workspace-root
+executable goes under `runtime/0.3.1/bin` in the persistent plugin data directory; build
+intermediates stay under `build/0.3.1`. Dependencies use the fetched workspace-root
 `Cargo.lock`. The hook needs GitHub access and, for uncached dependencies, registry access. The
 configured command resolves the `.exe` suffix on Windows.
 
