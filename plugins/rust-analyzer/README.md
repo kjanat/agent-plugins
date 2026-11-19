@@ -13,17 +13,15 @@ next check. It does not use Linux cgroups or macOS virtual-address-space limits.
 
 ## Install
 
-Requires **Rust 1.99+ with Cargo and a native linker**, Claude Code with plugin Setup hooks
-and LSP `userConfig` support, and rust-analyzer on PATH. Supported architectures: x64 and ARM64.
-Cargo builds the guard once; subsequent LSP sessions launch the native executable directly.
-There is no .NET SDK/runtime dependency. Python is needed only for tests.
+Requires **rustup with a Rust 1.99+ `stable` toolchain and a native linker**, and Claude Code
+with plugin SessionStart hooks and LSP `userConfig` support. Supported architectures: x64 and
+ARM64. There is no .NET SDK/runtime dependency. Python is needed only for tests.
 
-Use a Rust toolchain installed through rustup. Windows MSVC needs the Visual Studio C++ build
-tools; Linux needs a C linker/toolchain; macOS needs the Xcode Command Line Tools. These are
-the usual prerequisites for building native Rust projects.
+Windows MSVC needs the Visual Studio C++ build tools; Linux needs a C linker/toolchain; macOS
+needs the Xcode Command Line Tools. These are the usual prerequisites for building native Rust
+projects.
 
 ```sh
-rustup component add rust-analyzer rust-src
 claude plugin marketplace add kjanat/agent-plugins
 claude plugin install rust-analyzer@kjanat [--scope user | local | project] [--config memory_limit_mib=VALUE] [--config server=RUST_ANALYZER_BINARY]
 
@@ -31,38 +29,34 @@ claude plugin install rust-analyzer@kjanat [--scope user | local | project] [--c
 claude plugin install rust-analyzer@kjanat --scope user --config memory_limit_mib=2048 --config server=rust-analyzer
 
 claude plugin disable rust-analyzer-lsp@claude-plugins-official [--scope user | local | project]
-claude --init-only
 ```
 
-Run these commands in the project where you want protection. Disable other plugins claiming
-`.rs`, including `rust-guard@local-rust-guard` if you used the earlier standalone setup.
-Restart Claude after switching.
+Disable other plugins claiming `.rs`, including `rust-guard@local-rust-guard` if you used the
+earlier standalone setup. Restart Claude after switching.
 
-`claude --init-only` runs the plugin's Setup hook: Cargo fetches the complete
-`https://github.com/kjanat/agent-plugins.git` repository's `master` branch and installs the
-`rust-analyzer-guard` package with `--locked`. This retains the root Cargo workspace even
-when Claude caches only the plugin directory. The executable goes under `runtime/0.3.0/bin`
-in the persistent plugin data directory; build intermediates stay under `build/0.3.0`.
-Repeat initialization after updates. Dependencies use the fetched workspace-root `Cargo.lock`;
-the guard source follows the moving `master` branch, independently of the cached plugin version.
-Setup needs GitHub access and, for uncached dependencies, registry access. The configured
-command resolves the `.exe` suffix on Windows.
+At session start and resume, the plugin's SessionStart hook runs `cargo +stable install`: Cargo
+fetches the complete `https://github.com/kjanat/agent-plugins.git` repository's `master` branch
+and installs the `rust-analyzer-guard` package with `--locked`. The first session builds the
+guard, and Claude's first response waits for that build. Later sessions reinstall only when
+`master` has moved. `+stable` keeps a project's `rust-toolchain.toml` away from the build. The
+executable goes under `runtime/0.3.0/bin` in the persistent plugin data directory; build
+intermediates stay under `build/0.3.0`. Dependencies use the fetched workspace-root
+`Cargo.lock`. The hook needs GitHub access and, for uncached dependencies, registry access. The
+configured command resolves the `.exe` suffix on Windows.
 
-If setup fails, check `rustc --version` and `cargo --version`, then run `claude --init-only --debug`
-to see hook errors. Setup-hook failures do not block Claude itself. A missing compiled guard
-prevents this LSP from starting; there is no unguarded fallback.
+A failed build shows a SessionStart hook error and leaves Claude itself running. Run
+`claude --debug` to see the Cargo output. A missing compiled guard prevents this LSP from
+starting; there is no unguarded fallback.
 
 To load a local plugin without registering a marketplace:
 
 ```sh
-claude --plugin-dir /absolute/path/to/agent-plugins/plugins/rust-analyzer --init-only
 claude --plugin-dir /absolute/path/to/agent-plugins/plugins/rust-analyzer
 ```
 
-The Setup hook still builds GitHub's `master`, including with `--plugin-dir`; unpushed Rust
-changes are not installed by initialization. The tests below build an isolated Git snapshot
-of the current checkout, including uncommitted changes. Push the workspace changes to `master`
-before using the Git-based Setup hook against GitHub.
+The SessionStart hook builds GitHub's `master`, including with `--plugin-dir`; unpushed Rust
+changes are not installed. The tests below build an isolated Git snapshot of the current
+checkout, including uncommitted changes.
 
 ## Configuration
 
@@ -142,7 +136,8 @@ python plugins/rust-analyzer/tests/test_guard.py --lsp
 
 Python 3.10+ and Git are required for tests. Tests snapshot the working checkout into a temporary
 Git repository and copy just the plugin subtree into an isolated cache. They execute the actual
-Setup hook with only its Git URL redirected to that snapshot, then the configured LSP entrypoint.
+SessionStart hook twice from a project pinned to a missing toolchain, with only its Git URL
+redirected to that snapshot, then the configured LSP entrypoint.
 Temporary Git, Cargo and installation directories are removed afterward.
 A small compiled helper exercises binary stdio, quoting, memory
 accounting, group termination, cleanup after guard death and normal exit, and invalid settings.
@@ -162,7 +157,7 @@ macOS when pushed; no hosted run is claimed here.
 - [Windows job memory limits](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_limit_information)
 - [Atomic job assignment](https://devblogs.microsoft.com/oldnewthing/20230209-00/?p=107812)
 - [Unix process groups](https://man7.org/linux/man-pages/man2/setpgid.2.html)
-- [Claude Setup hooks](https://code.claude.com/docs/en/hooks#setup)
+- [Claude SessionStart hooks](https://code.claude.com/docs/en/hooks#sessionstart)
 - [Claude LSP configuration](https://code.claude.com/docs/en/plugins-reference#lspservers)
 
 <!-- markdownlint-disable-file -->

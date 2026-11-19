@@ -1,13 +1,14 @@
 {
 	"hooks": {
-		"Setup": [
+		"SessionStart": [
 			{
-				"matcher": "init",
+				"matcher": "startup|resume",
 				"hooks": [
 					{
 						"type": "command",
 						"command": "cargo",
 						"args": [
+							"+stable",
 							"install",
 							"--git",
 							"https://github.com/kjanat/agent-plugins.git",
@@ -19,12 +20,11 @@
 							"--target-dir",
 							"${CLAUDE_PLUGIN_DATA}/build/0.3.0",
 							"--locked",
-							"--force",
 							"--bin",
 							"rust-analyzer-guard",
 							"--quiet"
 						],
-						"timeout": 120
+						"timeout": 600
 					}
 				]
 			}

@@ -47,9 +47,9 @@ def install_from_git(directory):
     # A cached plugin has no ancestor Cargo workspace. Exercise exactly that layout.
     cached = directory / "cached plugin"
     shutil.copytree(source / PLUGIN.relative_to(repository), cached)
-    hook = json.loads((cached / "hooks/hooks.json").read_text())["hooks"]["Setup"][0][
-        "hooks"
-    ][0]
+    hook = json.loads((cached / "hooks/hooks.json").read_text())["hooks"][
+        "SessionStart"
+    ][0]["hooks"][0]
     arguments = list(hook["args"])
     branch = arguments[arguments.index("--branch") + 1]
     git = [
@@ -83,16 +83,38 @@ def install_from_git(directory):
     # Change only the Git URL: build the current snapshot with the actual hook flags.
     arguments[arguments.index("--git") + 1] = source.as_uri()
     build_environment = dict(os.environ, CARGO_HOME=str(directory / "cargo-home"))
-    subprocess.run(
-        [hook["command"], *map(expand, arguments)],
-        cwd=cached,
-        env=build_environment,
-        check=True,
-        timeout=hook["timeout"],
+    project = directory / "pinned project"
+    project.mkdir()
+    (project / "rust-toolchain.toml").write_text(
+        '[toolchain]\nchannel = "guard-test-missing"\n'
     )
+
+    def session_start():
+        return subprocess.run(
+            [hook["command"], *map(expand, arguments)],
+            cwd=project,
+            env=build_environment,
+            capture_output=True,
+            timeout=hook["timeout"],
+            check=False,
+        )
+
+    result = session_start()
+    assert result.returncode == 0 and not result.stdout, result.stderr
     installed = json.loads((cached / ".lsp.json").read_text())["rust-analyzer"]
-    print("PASS Git workspace installation from isolated cached plugin", flush=True)
-    return [expand(installed["command"]), *map(expand, installed.get("args", []))]
+    command = [expand(installed["command"]), *map(expand, installed.get("args", []))]
+    binary = Path(command[0] + (".exe" if WINDOWS else ""))
+    built = binary.stat().st_mtime_ns
+    print(
+        "PASS SessionStart installs from isolated cached plugin in a pinned project",
+        flush=True,
+    )
+
+    result = session_start()
+    assert result.returncode == 0 and not result.stdout, result.stderr
+    assert binary.stat().st_mtime_ns == built
+    print("PASS repeated SessionStart keeps the installed guard", flush=True)
+    return command
 
 
 def environment(server, limit="192"):
